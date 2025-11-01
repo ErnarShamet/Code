@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>URL Redirect Trace Tool</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Roboto+Mono:wght@400&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f0f4f8; /* Light blue-gray background */
+        }
+        .card {
+            box-shadow: 0 10px 30px -5px rgba(2, 6, 23, 0.1), 0 4px 12px -2px rgba(2, 6, 23, 0.05);
+        }
+        .mono-font {
+            font-family: 'Roboto Mono', monospace;
+        }
+    </style>
+</head>
+<body class="min-h-screen flex items-start justify-center p-4 sm:p-8">
+    <div class="w-full max-w-2xl mt-8 bg-white rounded-xl card p-6 sm:p-8">
+        <h1 class="text-3xl font-bold text-gray-800 mb-2 flex items-center">
+            <svg class="w-7 h-7 mr-2 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7l5 5m0 0l-5 5m5-5H6"></path></svg>
+            URL Redirect Trace Tool
+        </h1>
+        <p class="text-sm text-gray-500 mb-6">See the full path a short or suspicious link takes before reaching its final destination (simulated).</p>
+
+        <!-- Input Area -->
+        <div class="mb-6">
+            <label for="url-input" class="block text-sm font-medium text-gray-700 mb-2">Starting URL</label>
+            <input type="text" id="url-input" value="https://bit.ly/3QWjE2j" placeholder="e.g., a suspicious short link" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 transition duration-150 mono-font">
+        </div>
+        
+        <button onclick="traceRedirects()" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-lg transition duration-150 ease-in-out transform hover:scale-[1.005] mb-6">
+            Trace Redirect Path
+        </button>
+
+        <!-- Results Display -->
+        <div id="results-container" class="mt-4 hidden">
+            <h2 class="text-xl font-semibold text-gray-800 mb-4">Redirect Path (Simulated)</h2>
+            <div id="trace-output" class="p-4 bg-gray-50 rounded-lg border border-gray-200 space-y-3">
+                <!-- Trace steps will be injected here -->
+            </div>
+            <div id="final-url-box" class="mt-4 p-4 rounded-lg text-white bg-green-600">
+                <p class="font-bold">Final Destination:</p>
+                <p id="final-url" class="mono-font break-all"></p>
+            </div>
+        </div>
+        
+        <!-- Loading and Error Messages -->
+        <div id="loading-spinner" class="mt-4 hidden text-center">
+            <div class="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-current border-r-transparent align-[-0.125em] text-blue-600" role="status">
+                <span class="!absolute !-m-px !h-px !w-px !overflow-hidden !whitespace-nowrap !border-0 !p-0 ![clip:rect(0,0,0,0)]">Loading...</span>
+            </div>
+            <p class="text-sm text-gray-600 mt-2">Simulating trace (this may fail due to browser security restrictions)...</p>
+        </div>
+        
+        <div id="message-box" class="mt-4 hidden p-3 text-sm rounded-lg bg-red-100 text-red-700" role="alert"></div>
+    </div>
+
+    <script>
+        const urlInput = document.getElementById('url-input');
+        const resultsContainer = document.getElementById('results-container');
+        const traceOutput = document.getElementById('trace-output');
+        const finalUrlDisplay = document.getElementById('final-url');
+        const loadingSpinner = document.getElementById('loading-spinner');
+        const messageBox = document.getElementById('message-box');
+
+        // Helper function for custom message box (no alert())
+        function showMessage(text, type = 'error') {
+            messageBox.textContent = text;
+            messageBox.className = 'mt-4 block p-3 text-sm rounded-lg';
+            if (type === 'warning') {
+                messageBox.classList.add('bg-yellow-100', 'text-yellow-700');
+            } else {
+                messageBox.classList.add('bg-red-100', 'text-red-700');
+            }
+        }
+        
+        // This function simulates tracing redirects. 
+        // NOTE: Due to browser security restrictions (CORS), the actual network request 
+        // to trace external redirects will often be blocked. This code uses a local 
+        // simulation (the 'manual' redirect mode in fetch) to demonstrate the concept.
+        // For real-world use, a server-side script would be required.
+        async function traceRedirects() {
+            const urlString = urlInput.value.trim();
+            messageBox.classList.add('hidden');
+            resultsContainer.classList.add('hidden');
+            traceOutput.innerHTML = '';
+            loadingSpinner.classList.remove('hidden');
+
+            if (!urlString) {
+                loadingSpinner.classList.add('hidden');
+                showMessage("Please enter a URL to trace.");
+                return;
+            }
+
+            try {
+                // Fetch with 'manual' redirect mode means the fetch() call returns
+                // a response with status 3xx, and the Location header tells us where to go next.
+                // However, fetching third-party URLs will still be blocked by CORS/security.
+                // We use this concept to show how redirects work, but caution the user.
+                
+                // *** SIMULATION START ***
+                // Since actual tracing is heavily restricted in a client-side environment
+                // like this, we'll demonstrate the expected process flow with a common
+                // failure warning, which is the educational point.
+                
+                // Step 1: Initial URL
+                let step = 1;
+                let currentUrl = urlString;
+                const maxSteps = 5;
+                let traceSteps = [];
+
+                traceSteps.push({ url: currentUrl, status: 302, note: "Start (Simulated Initial Short Link)" });
+
+                // Add a few fictional redirects to show the danger
+                if (currentUrl.includes('bit.ly') || currentUrl.includes('tinyurl')) {
+                    traceSteps.push({ url: "https://evil-tracking-server.xyz/click/123", status: 307, note: "Hidden Tracking Server (Risk)" });
+                    traceSteps.push({ url: "https://legit-brand.co/verify-session?token=abc", status: 302, note: "Attempted Brand Impersonation" });
+                    traceSteps.push({ url: "https://real-final-site.com/welcome", status: 200, note: "Final Destination" });
+                    currentUrl = "https://real-final-site.com/welcome"; // Update final URL
+                } else {
+                    traceSteps.push({ url: "https://example.com/check-redirect/301", status: 301, note: "Server Redirect" });
+                    traceSteps.push({ url: "https://example.com/landing-page", status: 200, note: "Final Destination" });
+                    currentUrl = "https://example.com/landing-page"; // Update final URL
+                }
+
+                // *** SIMULATION END ***
+
+                // Render the simulation results
+                traceOutput.innerHTML = traceSteps.map((step, index) => {
+                    const icon = step.status === 200 ? '✅' : '➡️';
+                    const riskClass = step.note.includes('Risk') || step.note.includes('Impersonation') ? 'bg-red-50 text-red-700 border-red-200' : 'bg-white text-gray-700 border-gray-200';
+                    
+                    return `
+                        <div class="flex items-start p-3 rounded-lg border ${riskClass}">
+                            <div class="mr-3 text-lg">${icon}</div>
+                            <div class="flex-1">
+                                <p class="text-sm font-semibold">Step ${index + 1}: Status ${step.status} - ${step.note}</p>
+                                <p class="mono-font text-xs break-all">${step.url}</p>
+                            </div>
+                        </div>
+                    `;
+                }).join('<div class="h-4 border-l-2 border-dashed border-gray-300 ml-5"></div>'); // Separator line
+                
+                // Show final URL
+                finalUrlDisplay.textContent = currentUrl;
+                resultsContainer.classList.remove('hidden');
+
+                // Show the real-world limitation warning
+                showMessage("Warning: Actual URL tracing is heavily restricted in the browser due to CORS/security policies. This tool provides a **simulated demonstration** of how redirects can chain together. For real-world tracing, use a dedicated server-side tool.", 'warning');
+
+
+            } catch (e) {
+                // Catch any other general errors
+                console.error("Tracing failed:", e);
+                showMessage(`Could not process URL. Please check the format. (Error: ${e.message})`);
+            } finally {
+                loadingSpinner.classList.add('hidden');
+            }
+        }
+    </script>
+</body>
+</html>
