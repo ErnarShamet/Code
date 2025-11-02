@@ -1,0 +1,477 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Secure Notes App | Шифрование на Клиенте</title>
+    <!-- Загрузка Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Загрузка криптографической библиотеки CryptoJS -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.2.0/crypto-js.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f1f5f9; /* Slate 100 */
+        }
+        .note-card {
+            box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+            transition: transform 0.2s;
+        }
+        .note-card:hover {
+            transform: translateY(-2px);
+        }
+        /* Стили для имитации модального окна */
+        .modal-overlay {
+            background-color: rgba(0, 0, 0, 0.6);
+            backdrop-filter: blur(5px);
+        }
+    </style>
+</head>
+<body class="p-4 md:p-8">
+
+    <div id="modalContainer" class="fixed inset-0 hidden items-center justify-center z-50 modal-overlay">
+        <!-- Content will be injected here -->
+    </div>
+
+    <header class="mb-8">
+        <h1 class="text-4xl font-extrabold text-gray-800 mb-2">
+            Secure Notes <span class="text-indigo-600">App</span>
+        </h1>
+        <p class="text-gray-600">
+            Заметки с клиентским шифрованием (AES) и учебными шифрами (Caesar).
+        </p>
+        <div id="userInfo" class="text-sm mt-2 p-2 bg-indigo-100 text-indigo-800 rounded-lg">
+            Статус: Загрузка...
+        </div>
+    </header>
+
+    <!-- Форма для добавления новой заметки -->
+    <section class="bg-white p-6 rounded-xl shadow-lg mb-8">
+        <h2 class="text-2xl font-bold text-gray-700 mb-4">Новая Заметка</h2>
+        
+        <input type="text" id="noteTitle" placeholder="Заголовок"
+               class="w-full p-3 mb-4 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500">
+        
+        <textarea id="noteContent" rows="4" placeholder="Текст заметки..."
+                  class="w-full p-3 mb-4 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500"></textarea>
+        
+        <div class="mb-4 flex flex-col md:flex-row md:space-x-4">
+            <input type="password" id="encryptionKey" placeholder="Секретный Ключ (Пароль) для AES/XOR"
+                   class="flex-grow p-3 mb-4 md:mb-0 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500">
+            
+            <select id="cipherSelect" class="p-3 border border-gray-300 rounded-lg bg-gray-50 focus:ring-indigo-500 focus:border-indigo-500">
+                <option value="AES">AES-256 (Рекомендуется)</option>
+                <option value="CAESAR">Caesar Cipher (+3)</option>
+                <option value="NONE">Без шифрования (Base64)</option>
+            </select>
+        </div>
+
+        <button onclick="addNote()"
+                class="w-full bg-indigo-600 text-white p-3 rounded-lg font-semibold hover:bg-indigo-700 transition duration-150 ease-in-out">
+            Сохранить Заметку
+        </button>
+        <p id="saveMessage" class="text-sm mt-2 text-red-500"></p>
+    </section>
+
+    <!-- Список заметок -->
+    <section>
+        <h2 class="text-2xl font-bold text-gray-700 mb-4">Ваши Заметки</h2>
+        <div id="notesList" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            <!-- Заметки будут загружены сюда -->
+        </div>
+        <div id="loadingIndicator" class="text-center p-8 text-gray-500 hidden">Загрузка заметок...</div>
+    </section>
+
+    <!-- Консоль для вывода ошибок -->
+    <div id="errorConsole" class="fixed bottom-0 left-0 right-0 bg-red-100 text-red-700 p-3 hidden"></div>
+
+    <!-- FIREBASE AND APP LOGIC -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, onSnapshot, query, addDoc, doc, deleteDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Глобальные переменные Firebase (REQUIRED)
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
+        let db;
+        let auth;
+        let userId = null;
+        let isAuthReady = false;
+
+        // Инициализация Firebase и Аутентификация
+        try {
+            const app = initializeApp(firebaseConfig);
+            db = getFirestore(app);
+            auth = getAuth(app);
+            
+            onAuthStateChanged(auth, async (user) => {
+                const userInfoEl = document.getElementById('userInfo');
+                if (user) {
+                    userId = user.uid;
+                    isAuthReady = true;
+                    userInfoEl.innerHTML = `
+                        Статус: <span class="font-semibold">Аутентифицирован</span> | 
+                        Ваш ID: <span class="font-mono text-xs">${userId}</span> | 
+                        <span class="text-xs text-indigo-500">Хранилище: Private</span>
+                    `;
+                    // После успешной аутентификации запускаем слушателя заметок
+                    setupNotesListener();
+                } else {
+                    // Используем custom token, если доступен, иначе анонимно
+                    if (initialAuthToken) {
+                        await signInWithCustomToken(auth, initialAuthToken);
+                    } else {
+                        await signInAnonymously(auth);
+                    }
+                }
+            });
+        } catch (e) {
+            console.error("Firebase Initialization Error:", e);
+            document.getElementById('errorConsole').innerText = "Ошибка инициализации Firebase. См. консоль.";
+            document.getElementById('errorConsole').classList.remove('hidden');
+        }
+
+        // --- Вспомогательные функции шифрования (доступны глобально) ---
+
+        // Шифр Цезаря (сдвиг +3)
+        window.caesarCipher = (text, shift = 3) => {
+            if (typeof text !== 'string') return '';
+            return text.split('').map(char => {
+                const code = char.charCodeAt(0);
+                // Шифруем только печатаемые символы (например, ASCII 32-126)
+                if (code >= 32 && code <= 126) {
+                    return String.fromCharCode(((code - 32 + shift) % (126 - 32 + 1)) + 32);
+                }
+                return char;
+            }).join('');
+        };
+
+        // Дешифр Цезаря (сдвиг -3)
+        window.caesarDecipher = (cipherText, shift = 3) => {
+            if (typeof cipherText !== 'string') return '';
+            return window.caesarCipher(cipherText, -shift);
+        };
+        
+        // Кодирование/декодирование Base64 (не шифрование!)
+        window.encodeBase64 = (text) => {
+            return btoa(unescape(encodeURIComponent(text)));
+        };
+
+        window.decodeBase64 = (encoded) => {
+             try {
+                return decodeURIComponent(escape(atob(encoded)));
+             } catch (e) {
+                 console.error("Base64 Decode Error:", e);
+                 return "--- ОШИБКА ДЕКОДИРОВАНИЯ BASE64 ---";
+             }
+        };
+
+        // AES-256 (Использует CryptoJS)
+        window.aesEncrypt = (text, key) => {
+            if (!key) return "--- ОШИБКА: НЕТ КЛЮЧА ---";
+            // Шифрование в режиме AES-256-CBC
+            const encrypted = CryptoJS.AES.encrypt(text, key);
+            // Возвращает строковое представление: Base64(Salt+IV+Ciphertext)
+            return encrypted.toString();
+        };
+
+        window.aesDecrypt = (cipherText, key) => {
+            if (!key) return "--- ОШИБКА: НЕТ КЛЮЧА ---";
+            try {
+                const decrypted = CryptoJS.AES.decrypt(cipherText, key);
+                // Декодируем из WordArray в строку UTF-8
+                return decrypted.toString(CryptoJS.enc.Utf8);
+            } catch (e) {
+                console.error("AES Decryption Error:", e);
+                return "--- ОШИБКА ДЕШИФРОВАНИЯ (Неверный ключ или повреждены данные) ---";
+            }
+        };
+
+        // --- Основная логика приложения ---
+
+        window.addNote = async () => {
+            if (!isAuthReady || !userId) {
+                document.getElementById('saveMessage').innerText = "Аутентификация не завершена. Попробуйте снова.";
+                return;
+            }
+
+            const title = document.getElementById('noteTitle').value.trim();
+            const content = document.getElementById('noteContent').value.trim();
+            const key = document.getElementById('encryptionKey').value.trim();
+            const cipherType = document.getElementById('cipherSelect').value;
+            const saveMessageEl = document.getElementById('saveMessage');
+
+            if (!title || !content) {
+                saveMessageEl.innerText = "Заголовок и текст заметки не могут быть пустыми.";
+                return;
+            }
+            if (cipherType === 'AES' && !key) {
+                saveMessageEl.innerText = "Для AES-шифрования требуется секретный ключ (пароль).";
+                return;
+            }
+            
+            saveMessageEl.innerText = "Сохранение...";
+            
+            let encryptedContent = content;
+            let encryptionMethod = cipherType;
+
+            try {
+                // ШАГ 1: Шифрование
+                if (cipherType === 'AES') {
+                    // Шифруем данные с помощью AES-256
+                    encryptedContent = window.aesEncrypt(content, key);
+                } else if (cipherType === 'CAESAR') {
+                    // Учебный шифр Цезаря (сдвиг +3)
+                    encryptedContent = window.caesarCipher(content);
+                } else if (cipherType === 'NONE') {
+                    // Просто кодируем в Base64 для безопасной передачи как строки
+                    encryptedContent = window.encodeBase64(content);
+                    encryptionMethod = 'Base64';
+                }
+
+                // ШАГ 2: Сохранение в Firestore (Private Data)
+                const noteRef = collection(db, `artifacts/${appId}/users/${userId}/notes`);
+                await addDoc(noteRef, {
+                    title: window.encodeBase64(title), // Заголовок всегда кодируем Base64
+                    content: encryptedContent,
+                    cipher: encryptionMethod,
+                    createdAt: new Date()
+                });
+
+                // Очистка формы
+                document.getElementById('noteTitle').value = '';
+                document.getElementById('noteContent').value = '';
+                saveMessageEl.innerText = "Заметка успешно сохранена и зашифрована!";
+            } catch (e) {
+                console.error("Error adding document: ", e);
+                saveMessageEl.innerText = `Ошибка при сохранении: ${e.message}`;
+            }
+        };
+
+        window.deleteNote = async (noteId) => {
+            if (!isAuthReady || !userId) return;
+            
+            const confirmed = await showCustomConfirm("Удаление Заметки", "Вы уверены, что хотите удалить эту заметку?");
+            if (!confirmed) return;
+
+            try {
+                const docRef = doc(db, `artifacts/${appId}/users/${userId}/notes`, noteId);
+                await deleteDoc(docRef);
+            } catch (e) {
+                console.error("Error deleting document: ", e);
+            }
+        };
+
+        function setupNotesListener() {
+            if (!db || !userId) return;
+
+            const noteRef = collection(db, `artifacts/${appId}/users/${userId}/notes`);
+            const q = query(noteRef);
+
+            document.getElementById('loadingIndicator').classList.remove('hidden');
+            
+            onSnapshot(q, (snapshot) => {
+                document.getElementById('loadingIndicator').classList.add('hidden');
+                const notesList = document.getElementById('notesList');
+                notesList.innerHTML = ''; // Очистка
+                
+                if (snapshot.empty) {
+                    notesList.innerHTML = '<p class="text-gray-500 col-span-full p-4 text-center border border-dashed rounded-lg">У вас пока нет заметок. Добавьте первую!</p>';
+                    return;
+                }
+
+                snapshot.docs.forEach(doc => {
+                    const data = doc.data();
+                    const noteId = doc.id;
+                    notesList.appendChild(createNoteCard(noteId, data));
+                });
+            }, (error) => {
+                console.error("Firestore Listener Error: ", error);
+                document.getElementById('errorConsole').innerText = `Ошибка загрузки данных: ${error.message}`;
+                document.getElementById('errorConsole').classList.remove('hidden');
+            });
+        }
+
+        function createNoteCard(id, data) {
+            const card = document.createElement('div');
+            card.className = 'note-card bg-white p-5 rounded-xl border border-gray-200 flex flex-col justify-between space-y-3';
+            
+            const title = window.decodeBase64(data.title || '');
+            const contentSnippet = (data.content || '').substring(0, 100) + '...';
+            const cipherLabel = data.cipher || 'NONE';
+
+            card.innerHTML = `
+                <div>
+                    <h3 class="text-xl font-bold text-gray-800 mb-2">${title}</h3>
+                    <div class="mb-3">
+                        <span class="inline-block bg-indigo-100 text-indigo-800 text-xs font-medium px-2.5 py-0.5 rounded-full">
+                            Метод: ${cipherLabel}
+                        </span>
+                    </div>
+                    <p class="text-gray-600 italic">
+                        ${cipherLabel === 'AES' ? 'Зашифровано AES. Для просмотра нужен ключ.' : contentSnippet}
+                    </p>
+                </div>
+                <div class="flex space-x-2 mt-4">
+                    <button onclick="window.viewNote('${id}', '${cipherLabel}')"
+                            class="flex-grow bg-indigo-500 text-white text-sm py-2 rounded-lg hover:bg-indigo-600 transition">
+                        Просмотреть/Дешифровать
+                    </button>
+                    <button onclick="window.deleteNote('${id}')"
+                            class="flex-shrink-0 bg-red-500 text-white text-sm p-2 rounded-lg hover:bg-red-600 transition">
+                        <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd"></path></svg>
+                    </button>
+                </div>
+            `;
+            return card;
+        }
+
+        // --- Обработка просмотра/дешифрования ---
+        window.noteCache = {};
+
+        // Загружает одну заметку из кеша или Firestore
+        async function getNoteData(noteId) {
+            if (window.noteCache[noteId]) return window.noteCache[noteId];
+
+            try {
+                const docRef = doc(db, `artifacts/${appId}/users/${userId}/notes`, noteId);
+                const snapshot = await getDoc(docRef);
+                if (snapshot.exists()) {
+                    window.noteCache[noteId] = snapshot.data();
+                    return snapshot.data();
+                }
+            } catch (e) {
+                console.error("Failed to fetch note:", e);
+                return null;
+            }
+        }
+
+        window.viewNote = async (noteId, cipherType) => {
+            const data = await getNoteData(noteId);
+            if (!data) return;
+            
+            const title = window.decodeBase64(data.title);
+
+            let contentDisplay = `<p class="text-gray-500 text-lg mb-4">
+                Эта заметка зашифрована методом <span class="font-bold">${cipherType}</span>.
+            </p>`;
+            let keyInput = '';
+            let decryptButton = '';
+
+            // Если это AES или Цезарь, показываем форму для ключа
+            if (cipherType === 'AES' || cipherType === 'CAESAR') {
+                keyInput = `
+                    <input type="password" id="decryptKey-${noteId}" placeholder="Введите секретный ключ"
+                           class="w-full p-3 mb-4 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500">
+                `;
+                decryptButton = `
+                    <button onclick="attemptDecryption('${noteId}', '${cipherType}')"
+                            class="w-full bg-indigo-600 text-white p-3 rounded-lg font-semibold hover:bg-indigo-700 transition">
+                        Дешифровать
+                    </button>
+                `;
+            } else if (cipherType === 'Base64') {
+                // Если Base64, сразу декодируем
+                const decodedContent = window.decodeBase64(data.content);
+                contentDisplay = `<textarea readonly rows="10" class="w-full p-3 border rounded-lg bg-gray-50 text-gray-700">${decodedContent}</textarea>`;
+            }
+
+            // Формирование модального окна
+            const modalContent = `
+                <div class="bg-white p-6 rounded-xl shadow-2xl w-full max-w-lg mx-auto transform transition-all duration-300">
+                    <div class="flex justify-between items-center mb-4">
+                        <h3 class="text-2xl font-bold text-gray-800">${title}</h3>
+                        <button onclick="closeModal()" class="text-gray-500 hover:text-gray-700 text-2xl font-semibold">&times;</button>
+                    </div>
+                    
+                    <div id="decryptionArea-${noteId}">
+                        ${contentDisplay}
+                        ${keyInput}
+                        ${decryptButton}
+                    </div>
+                    
+                    <p id="decryptionMessage-${noteId}" class="text-sm mt-2 text-red-500"></p>
+                </div>
+            `;
+            
+            showModal(modalContent);
+        };
+
+        window.attemptDecryption = (noteId, cipherType) => {
+            const key = document.getElementById(`decryptKey-${noteId}`).value.trim();
+            const messageEl = document.getElementById(`decryptionMessage-${noteId}`);
+            const data = window.noteCache[noteId];
+            
+            if (!data || !data.content) return;
+
+            let decryptedContent = "--- ОШИБКА ДЕШИФРОВАНИЯ ---";
+
+            if (cipherType === 'AES' && !key) {
+                messageEl.innerText = "Для дешифрования AES введите ключ!";
+                return;
+            }
+            
+            messageEl.innerText = "Дешифрование...";
+
+            if (cipherType === 'AES') {
+                decryptedContent = window.aesDecrypt(data.content, key);
+            } else if (cipherType === 'CAESAR') {
+                // Для Цезаря ключ не нужен (фиксированный сдвиг), но для демонстрации можно пропустить проверку ключа
+                decryptedContent = window.caesarDecipher(data.content);
+            }
+            
+            const area = document.getElementById(`decryptionArea-${noteId}`);
+            if (decryptedContent.startsWith("--- ОШИБКА")) {
+                messageEl.innerText = decryptedContent.replace("--- ", "").replace(" ---", "");
+            } else {
+                area.innerHTML = `
+                    <textarea readonly rows="10" class="w-full p-3 border rounded-lg bg-green-50 text-gray-700">${decryptedContent}</textarea>
+                    <p class="text-sm mt-2 text-green-600 font-semibold">Дешифрование УСПЕШНО!</p>
+                `;
+                messageEl.innerText = '';
+            }
+        };
+
+        // --- Вспомогательные функции UI ---
+
+        function showModal(content) {
+            const container = document.getElementById('modalContainer');
+            container.innerHTML = content;
+            container.classList.remove('hidden');
+            container.classList.add('flex');
+        }
+
+        window.closeModal = () => {
+            const container = document.getElementById('modalContainer');
+            container.classList.add('hidden');
+            container.classList.remove('flex');
+            container.innerHTML = '';
+        };
+
+        function showCustomConfirm(title, message) {
+            return new Promise((resolve) => {
+                const modalContent = `
+                    <div class="bg-white p-6 rounded-xl shadow-2xl w-full max-w-sm mx-auto transform transition-all duration-300">
+                        <h3 class="text-xl font-bold text-gray-800 mb-2">${title}</h3>
+                        <p class="text-gray-600 mb-4">${message}</p>
+                        <div class="flex justify-end space-x-3">
+                            <button onclick="resolve(false); closeModal()" class="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition">Отмена</button>
+                            <button onclick="resolve(true); closeModal()" class="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition">Подтвердить</button>
+                        </div>
+                    </div>
+                `;
+                showModal(modalContent);
+            });
+        }
+        
+        // Добавляем глобальный доступ к getDoc для функции getNoteData
+        import { getDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        window.getDoc = getDoc;
+        
+    </script>
+</body>
+</html>

@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Link Guard | Безопасный Сокращатель Ссылок</title>
+    <!-- Загрузка Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f3f4f6; /* Light gray background */
+        }
+        .card {
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -4px rgba(0, 0, 0, 0.1);
+        }
+    </style>
+</head>
+<body class="p-4 md:p-8 flex items-center justify-center min-h-screen">
+
+    <!-- Основной контейнер приложения -->
+    <div id="appContainer" class="w-full max-w-2xl bg-white p-6 md:p-10 rounded-2xl card transition-all duration-500">
+        <header class="text-center mb-8">
+            <h1 class="text-3xl md:text-4xl font-extrabold text-gray-800 mb-2">
+                Link Guard <span class="text-indigo-600">Сокращатель</span>
+            </h1>
+            <p class="text-gray-600">
+                Сократите ссылку с проверкой на фишинг и вредоносное ПО.
+            </p>
+        </header>
+
+        <!-- Форма сокращения -->
+        <div class="mb-6">
+            <label for="longUrl" class="block text-sm font-medium text-gray-700 mb-2">
+                Длинный URL (включая https://)
+            </label>
+            <input type="url" id="longUrl" placeholder="https://very-long-domain.com/path/to/content"
+                   class="w-full p-3 border-2 border-gray-300 rounded-xl focus:border-indigo-500 focus:ring-indigo-500 transition duration-150">
+        </div>
+
+        <button onclick="shortenUrl()"
+                class="w-full bg-indigo-600 text-white p-3 rounded-xl font-bold text-lg hover:bg-indigo-700 transition duration-150 transform hover:scale-[1.01]">
+            Сократить и Проверить Безопасность
+        </button>
+
+        <!-- Контейнер для вывода результатов -->
+        <div id="resultOutput" class="mt-6 p-4 border border-indigo-200 bg-indigo-50 rounded-xl hidden">
+            <!-- Результаты и короткая ссылка будут здесь -->
+        </div>
+
+        <!-- Индикатор загрузки -->
+        <div id="loadingIndicator" class="mt-6 text-center text-indigo-600 font-semibold hidden">
+            Выполняется проверка безопасности и сохранение...
+        </div>
+
+    </div>
+    
+    <!-- Контейнер для страницы с предупреждением (Редирект) -->
+    <div id="redirectContainer" class="w-full max-w-2xl bg-white p-6 md:p-10 rounded-2xl card hidden">
+        <!-- Содержимое страницы предупреждения будет здесь -->
+    </div>
+
+    <!-- FIREBASE AND APP LOGIC -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, getDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Глобальные переменные Firebase (REQUIRED)
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
+        let db;
+        let auth;
+        let isAuthReady = false;
+
+        // Инициализация Firebase и Аутентификация
+        try {
+            const app = initializeApp(firebaseConfig);
+            db = getFirestore(app);
+            auth = getAuth(app);
+            
+            onAuthStateChanged(auth, async (user) => {
+                if (user) {
+                    isAuthReady = true;
+                    console.log("Firebase Auth Ready. User ID:", user.uid);
+                    // После готовности Firebase, проверяем, не является ли текущий URL короткой ссылкой
+                    handleUrlHash();
+                } else {
+                    if (initialAuthToken) {
+                        await signInWithCustomToken(auth, initialAuthToken);
+                    } else {
+                        await signInAnonymously(auth);
+                    }
+                }
+            });
+        } catch (e) {
+            console.error("Firebase Initialization Error:", e);
+        }
+
+        /**
+         * Мок-функция проверки безопасности (эвристический анализ).
+         * @param {string} url - Проверяемый URL.
+         * @returns {{rating: 'SAFE'|'SUSPICIOUS'|'DANGEROUS', reason: string}}
+         */
+        function mockSafetyCheck(url) {
+            const urlLower = url.toLowerCase();
+            const suspiciousKeywords = ['login', 'verify', 'update', 'account', 'banking', 'secure', 'pass', 'auth'];
+            const dangerousPatterns = [
+                /\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}/, // IP-адреса вместо доменных имен
+                /redirect=/i, // Использование открытых редиректоров
+                /bit\.ly|tinyurl\.com/i // Ссылки, уже сокращенные другими сервисами (могут скрывать опасность)
+            ];
+
+            let rating = 'SAFE';
+            let reason = 'Явные угрозы не найдены. Домен выглядит нормально.';
+
+            // Проверка на опасные паттерны
+            for (const pattern of dangerousPatterns) {
+                if (pattern.test(url)) {
+                    rating = 'DANGEROUS';
+                    reason = 'Обнаружен опасный паттерн (например, IP-адрес или открытый редиректор).';
+                    return { rating, reason };
+                }
+            }
+
+            // Проверка на подозрительные ключевые слова (часто используются в фишинге)
+            if (suspiciousKeywords.some(keyword => urlLower.includes(keyword))) {
+                rating = 'SUSPICIOUS';
+                reason = 'Обнаружены подозрительные ключевые слова (например, "login", "verify") в пути или домене.';
+            }
+            
+            // Проверка на длинные Base64 строки (обфускация)
+            if (urlLower.includes('base64')) {
+                 rating = 'SUSPICIOUS';
+                 reason = 'Обнаружено слово "base64" или подозрительное кодирование.';
+            }
+
+            return { rating, reason };
+        }
+
+        /**
+         * Генерирует короткую ссылку, проверяет ее безопасность и сохраняет.
+         */
+        window.shortenUrl = async () => {
+            if (!isAuthReady) {
+                alert("Подождите, идет инициализация Firebase.");
+                return;
+            }
+
+            const longUrlInput = document.getElementById('longUrl');
+            const resultOutput = document.getElementById('resultOutput');
+            const loadingIndicator = document.getElementById('loadingIndicator');
+            const longUrl = longUrlInput.value.trim();
+
+            resultOutput.classList.add('hidden');
+            resultOutput.innerHTML = '';
+            
+            if (!longUrl || !longUrl.startsWith('http')) {
+                resultOutput.classList.remove('hidden');
+                resultOutput.className = 'mt-6 p-4 border border-red-200 bg-red-50 text-red-700 rounded-xl';
+                resultOutput.innerHTML = 'Введите действительный URL, начинающийся с http:// или https://';
+                return;
+            }
+
+            loadingIndicator.classList.remove('hidden');
+
+            try {
+                // ШАГ 1: Проверка безопасности
+                const safety = mockSafetyCheck(longUrl);
+                const shortCode = crypto.randomUUID().substring(0, 6); // Генерация короткого кода
+                const storagePath = `artifacts/${appId}/public/data/short_links`;
+                const docRef = doc(db, storagePath, shortCode);
+
+                // ШАГ 2: Сохранение данных в Firestore (Public Collection)
+                await setDoc(docRef, {
+                    longUrl: longUrl,
+                    safetyRating: safety.rating,
+                    safetyReason: safety.reason,
+                    createdAt: new Date(),
+                    createdBy: auth.currentUser.uid 
+                });
+
+                // ШАГ 3: Отображение результата
+                const shortLink = `${window.location.origin}${window.location.pathname}#${shortCode}`;
+                displayResult(shortLink, longUrl, safety);
+
+            } catch (e) {
+                console.error("Ошибка при сокращении URL:", e);
+                resultOutput.classList.remove('hidden');
+                resultOutput.className = 'mt-6 p-4 border border-red-200 bg-red-50 text-red-700 rounded-xl';
+                resultOutput.innerHTML = `Произошла ошибка при сохранении: ${e.message}`;
+            } finally {
+                loadingIndicator.classList.add('hidden');
+            }
+        };
+
+        /**
+         * Отображает результат сокращения ссылки с рейтингом безопасности.
+         */
+        function displayResult(shortLink, longUrl, safety) {
+            const resultOutput = document.getElementById('resultOutput');
+            resultOutput.classList.remove('hidden');
+            
+            let colorClass, iconHtml, titleText;
+
+            if (safety.rating === 'SAFE') {
+                colorClass = 'border-green-400 bg-green-100 text-green-800';
+                iconHtml = '<svg class="w-6 h-6 mr-3" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"></path></svg>';
+                titleText = 'Безопасность: В порядке';
+            } else if (safety.rating === 'SUSPICIOUS') {
+                colorClass = 'border-yellow-400 bg-yellow-100 text-yellow-800';
+                iconHtml = '<svg class="w-6 h-6 mr-3" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M8.257 3.099c.765-1.425 2.502-1.425 3.267 0l4.996 9.255a2.25 2.25 0 01-1.63 3.32h-9.932a2.25 2.25 0 01-1.63-3.32l4.996-9.255zM10 13a1 1 0 100-2 1 1 0 000 2zm0 4a1 1 0 100-2 1 1 0 000 2z" clip-rule="evenodd"></path></svg>';
+                titleText = 'Безопасность: Подозрительно';
+            } else {
+                colorClass = 'border-red-400 bg-red-100 text-red-800';
+                iconHtml = '<svg class="w-6 h-6 mr-3" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd"></path></svg>';
+                titleText = 'Безопасность: ОПАСНО';
+            }
+
+            resultOutput.className = `mt-6 p-4 rounded-xl border-l-4 ${colorClass}`;
+            resultOutput.innerHTML = `
+                <div class="flex items-center font-bold mb-2">
+                    ${iconHtml}
+                    ${titleText}
+                </div>
+                <p class="text-sm font-semibold mb-2">Причина: ${safety.reason}</p>
+                
+                <label class="block text-sm font-medium text-gray-700 mt-4">Ваша короткая ссылка:</label>
+                <div class="flex items-center mt-1">
+                    <input id="shortLinkOutput" readonly value="${shortLink}"
+                           class="flex-grow p-2 border border-gray-300 rounded-l-lg text-sm bg-white font-mono" />
+                    <button onclick="copyToClipboard('shortLinkOutput')"
+                            class="p-2 bg-indigo-500 text-white rounded-r-lg hover:bg-indigo-600 transition duration-150">
+                        Копировать
+                    </button>
+                </div>
+                <p class="text-xs text-gray-500 mt-2">
+                    Чтобы проверить редирект, скопируйте ссылку и вставьте ее в адресную строку браузера.
+                </p>
+            `;
+        }
+
+        /**
+         * Копирует текст из поля ввода в буфер обмена.
+         */
+        window.copyToClipboard = (elementId) => {
+            const copyText = document.getElementById(elementId);
+            copyText.select();
+            copyText.setSelectionRange(0, 99999);
+            document.execCommand('copy');
+            // Простая визуальная обратная связь
+            const originalValue = copyText.value;
+            copyText.value = "Скопировано!";
+            setTimeout(() => copyText.value = originalValue, 1000);
+        };
+
+        // --- ЛОГИКА РЕДИРЕКТА (СИМУЛЯЦИЯ) ---
+
+        /**
+         * Обрабатывает URL-хеш при загрузке страницы.
+         */
+        function handleUrlHash() {
+            const hash = window.location.hash.substring(1); // Получаем код из #
+            
+            if (hash) {
+                document.getElementById('appContainer').classList.add('hidden');
+                document.getElementById('redirectContainer').classList.remove('hidden');
+                getLinkAndRedirect(hash);
+            } else {
+                 document.getElementById('appContainer').classList.remove('hidden');
+                 document.getElementById('redirectContainer').classList.add('hidden');
+            }
+        }
+
+        /**
+         * Получает длинную ссылку из Firestore и отображает страницу предупреждения.
+         */
+        async function getLinkAndRedirect(shortCode) {
+            const container = document.getElementById('redirectContainer');
+            container.innerHTML = `
+                <div class="text-center p-8">
+                    <h2 class="text-3xl font-bold text-gray-700">Проверка короткой ссылки...</h2>
+                    <div class="mt-4 text-indigo-600 font-semibold">Код: ${shortCode}</div>
+                </div>
+            `;
+            
+            try {
+                const storagePath = `artifacts/${appId}/public/data/short_links`;
+                const docRef = doc(db, storagePath, shortCode);
+                const docSnap = await getDoc(docRef);
+
+                if (docSnap.exists()) {
+                    const data = docSnap.data();
+                    displayWarningPage(data, shortCode);
+                } else {
+                    container.innerHTML = `
+                        <div class="text-center p-8">
+                            <h2 class="text-3xl font-bold text-red-600">Ошибка 404</h2>
+                            <p class="text-gray-600 mt-4">Запрашиваемый короткий код не найден.</p>
+                        </div>
+                    `;
+                }
+
+            } catch (e) {
+                console.error("Ошибка при получении ссылки:", e);
+                container.innerHTML = `<div class="text-center p-8 text-red-600">Ошибка при доступе к базе данных.</div>`;
+            }
+        }
+
+        /**
+         * Отображает страницу с предупреждением о безопасности.
+         */
+        function displayWarningPage(linkData, shortCode) {
+            const container = document.getElementById('redirectContainer');
+            const { longUrl, safetyRating, safetyReason } = linkData;
+
+            let color, bgColor, icon, title, buttonText, buttonColor;
+            
+            switch (safetyRating) {
+                case 'SAFE':
+                    color = 'text-green-600';
+                    bgColor = 'bg-green-100';
+                    icon = '✅';
+                    title = 'Переход безопасен';
+                    buttonText = 'Перейти по ссылке';
+                    buttonColor = 'bg-green-600 hover:bg-green-700';
+                    break;
+                case 'SUSPICIOUS':
+                    color = 'text-yellow-600';
+                    bgColor = 'bg-yellow-100';
+                    icon = '⚠️';
+                    title = 'Подозрительная ссылка';
+                    buttonText = 'Продолжить переход (на свой страх и риск)';
+                    buttonColor = 'bg-yellow-600 hover:bg-yellow-700';
+                    break;
+                case 'DANGEROUS':
+                default:
+                    color = 'text-red-600';
+                    bgColor = 'bg-red-100';
+                    icon = '❌';
+                    title = 'ОПАСНАЯ ССЫЛКА!';
+                    buttonText = 'Не переходить / Вернуться на главную';
+                    buttonColor = 'bg-red-600 hover:bg-red-700';
+                    break;
+            }
+
+            container.innerHTML = `
+                <div class="text-center ${bgColor} p-6 md:p-10 rounded-xl mb-6">
+                    <div class="text-5xl mb-4">${icon}</div>
+                    <h2 class="text-3xl font-extrabold ${color} mb-2">${title}</h2>
+                    <p class="text-gray-700 text-lg">
+                        Эта ссылка была помечена как <span class="font-bold">${safetyRating}</span>.
+                    </p>
+                </div>
+                
+                <div class="mb-6 p-4 border border-gray-200 rounded-lg">
+                    <p class="text-sm font-semibold text-gray-800">Целевой URL:</p>
+                    <p class="text-xs font-mono text-gray-600 break-all">${longUrl}</p>
+                    <p class="text-sm font-semibold text-gray-800 mt-3">Причина:</p>
+                    <p class="text-sm text-gray-600">${safetyReason}</p>
+                </div>
+
+                <a href="${safetyRating === 'DANGEROUS' ? window.location.origin + window.location.pathname : longUrl}"
+                   target="_blank"
+                   class="block text-center w-full ${buttonColor} text-white p-4 rounded-xl font-bold text-lg transition duration-150 transform hover:scale-[1.01] no-underline">
+                    ${buttonText}
+                </a>
+
+                <button onclick="window.location.hash='';" class="w-full mt-3 text-sm text-gray-500 hover:text-gray-700 transition">
+                    Вернуться к сокращателю
+                </button>
+            `;
+        }
+
+    </script>
+</body>
+</html>

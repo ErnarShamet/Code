@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Crypto Playground | Интерактивное Шифрование</title>
+    <!-- Загрузка Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f3f4f6;
+        }
+        .card {
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -4px rgba(0, 0, 0, 0.1);
+        }
+        /* Стили для имитации модального окна */
+        .modal-overlay {
+            background-color: rgba(0, 0, 0, 0.6);
+            backdrop-filter: blur(5px);
+        }
+    </style>
+</head>
+<body class="p-4 md:p-8 flex items-start justify-center min-h-screen">
+
+    <div id="modalContainer" class="fixed inset-0 hidden items-center justify-center z-50 modal-overlay">
+        <!-- Message box will be injected here -->
+    </div>
+
+    <div class="w-full max-w-4xl bg-white p-6 md:p-10 rounded-2xl card transition-all duration-500">
+        <header class="text-center mb-8">
+            <h1 class="text-3xl md:text-4xl font-extrabold text-gray-800 mb-2">
+                Crypto <span class="text-indigo-600">Playground</span>
+            </h1>
+            <p class="text-gray-600">
+                Попробуйте разные симметричные шифры для интерактивного обучения.
+            </p>
+        </header>
+
+        <!-- Выбор шифра и ввод ключа -->
+        <div class="mb-6 grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div class="md:col-span-1">
+                <label for="cipherSelect" class="block text-sm font-medium text-gray-700 mb-2">Выберите Шифр:</label>
+                <select id="cipherSelect" onchange="updateKeyInput()"
+                        class="w-full p-3 border-2 border-gray-300 rounded-xl focus:border-indigo-500 focus:ring-indigo-500 transition duration-150 bg-white">
+                    <option value="CAESAR">Caesar Cipher (Сдвиг)</option>
+                    <option value="VIGENERE">Vigenère Cipher (Ключевое слово)</option>
+                    <option value="XOR">XOR Cipher (Побитовый ключ)</option>
+                    <option value="BASE64">Base64 (Кодирование, не шифрование)</option>
+                </select>
+            </div>
+            
+            <div class="md:col-span-2">
+                <label for="keyInput" id="keyLabel" class="block text-sm font-medium text-gray-700 mb-2">Ключ (числовой сдвиг 1-25):</label>
+                <input type="text" id="keyInput" value="3" placeholder="Введите ключ или сдвиг"
+                       class="w-full p-3 border-2 border-gray-300 rounded-xl focus:border-indigo-500 focus:ring-indigo-500 transition duration-150">
+            </div>
+        </div>
+
+        <!-- Поля ввода/вывода -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <!-- Исходный текст -->
+            <div>
+                <label for="plaintext" class="block text-lg font-semibold text-gray-700 mb-2">
+                    Исходный текст (Plaintext)
+                </label>
+                <textarea id="plaintext" rows="8" placeholder="Введите текст для шифрования..."
+                          class="w-full p-4 border-2 border-gray-300 rounded-xl resize-none focus:border-indigo-500 focus:ring-indigo-500 transition duration-150"></textarea>
+                <button onclick="encrypt()"
+                        class="w-full mt-3 bg-indigo-600 text-white p-3 rounded-xl font-bold hover:bg-indigo-700 transition duration-150">
+                    ШИФРОВАТЬ ➡️
+                </button>
+            </div>
+
+            <!-- Шифротекст -->
+            <div>
+                <label for="ciphertext" class="block text-lg font-semibold text-gray-700 mb-2">
+                    Результат / Шифротекст (Ciphertext)
+                </label>
+                <textarea id="ciphertext" rows="8" placeholder="Здесь появится результат..."
+                          class="w-full p-4 border-2 border-gray-300 rounded-xl resize-none focus:border-indigo-500 focus:ring-indigo-500 transition duration-150"></textarea>
+                <button onclick="decrypt()"
+                        class="w-full mt-3 bg-green-600 text-white p-3 rounded-xl font-bold hover:bg-green-700 transition duration-150">
+                    ДЕШИФРОВАТЬ ⬅️
+                </button>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- JavaScript Logic -->
+    <script>
+        // --- UI Functions ---
+        
+        function updateKeyInput() {
+            const cipher = document.getElementById('cipherSelect').value;
+            const keyInput = document.getElementById('keyInput');
+            const keyLabel = document.getElementById('keyLabel');
+            
+            keyInput.type = 'text'; 
+            keyInput.value = '';
+
+            switch (cipher) {
+                case 'CAESAR':
+                    keyLabel.textContent = 'Ключ (числовой сдвиг 1-94):';
+                    keyInput.placeholder = 'Введите числовой сдвиг (например, 3)';
+                    keyInput.value = '3';
+                    break;
+                case 'VIGENERE':
+                    keyLabel.textContent = 'Ключ (буквенное слово):';
+                    keyInput.placeholder = 'Введите ключевое слово (например, SECRET)';
+                    keyInput.value = 'SECRET';
+                    break;
+                case 'XOR':
+                    keyLabel.textContent = 'Ключ (любая строка):';
+                    keyInput.placeholder = 'Введите ключ для XOR (например, KEY)';
+                    keyInput.value = 'KEY';
+                    break;
+                case 'BASE64':
+                    keyLabel.textContent = 'Ключ (не требуется для Base64):';
+                    keyInput.placeholder = 'Ключ не используется';
+                    keyInput.value = '';
+                    keyInput.type = 'hidden';
+                    break;
+            }
+        }
+
+        function showMessage(title, message, type = 'success') {
+            const container = document.getElementById('modalContainer');
+            let bgColor, borderColor, textColor;
+
+            switch (type) {
+                case 'error':
+                    bgColor = 'bg-red-100';
+                    borderColor = 'border-red-500';
+                    textColor = 'text-red-800';
+                    break;
+                case 'warning':
+                    bgColor = 'bg-yellow-100';
+                    borderColor = 'border-yellow-500';
+                    textColor = 'text-yellow-800';
+                    break;
+                case 'success':
+                default:
+                    bgColor = 'bg-indigo-100';
+                    borderColor = 'border-indigo-500';
+                    textColor = 'text-indigo-800';
+                    break;
+            }
+
+            const modalContent = `
+                <div class="${bgColor} border-t-4 ${borderColor} rounded-b ${textColor} px-4 py-3 shadow-md w-full max-w-sm mx-auto transform transition-all duration-300" role="alert">
+                    <div class="flex">
+                        <div class="py-1"><svg class="fill-current h-6 w-6 ${textColor} mr-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M2.93 17.07A10 10 0 1 1 17.07 2.93 10 10 0 0 1 2.93 17.07zm12.73-1.41A8 8 0 1 0 4.34 4.34a8 8 0 0 0 11.32 11.32zM9 11V9h2v6H9v-4zm0-6h2v2H9V5z"/></svg></div>
+                        <div>
+                            <p class="font-bold">${title}</p>
+                            <p class="text-sm">${message}</p>
+                            <button onclick="closeModal()" class="mt-2 text-xs font-semibold ${textColor} opacity-80 hover:opacity-100">
+                                Закрыть
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+            container.innerHTML = modalContent;
+            container.classList.remove('hidden');
+            container.classList.add('flex');
+        }
+
+        window.closeModal = () => {
+            const container = document.getElementById('modalContainer');
+            container.classList.add('hidden');
+            container.classList.remove('flex');
+            container.innerHTML = '';
+        };
+
+        // --- Core Cipher Logic ---
+
+        const ASCII_START = 32; // Пробел
+        const ASCII_END = 126;  // Тильда ~
+        const ASCII_RANGE = ASCII_END - ASCII_START + 1; // 95 символов
+
+        /**
+         * Шифр Цезаря (Caesar Cipher)
+         * Работает со всем диапазоном печатаемых ASCII-символов (32-126).
+         */
+        function caesar(text, shift, encrypt = true) {
+            if (!text) return "";
+            if (typeof shift !== 'number' || isNaN(shift)) {
+                 showMessage("Ошибка ключа", "Для Цезаря требуется числовой сдвиг.", 'error');
+                 return;
+            }
+            
+            // Если дешифрование, меняем сдвиг на обратный
+            if (!encrypt) {
+                shift = -shift;
+            }
+            
+            // Нормализуем сдвиг, чтобы он был в пределах диапазона
+            shift = (shift % ASCII_RANGE + ASCII_RANGE) % ASCII_RANGE;
+
+            return text.split('').map(char => {
+                const code = char.charCodeAt(0);
+                
+                if (code >= ASCII_START && code <= ASCII_END) {
+                    let newCode = code + shift;
+                    
+                    if (newCode > ASCII_END) {
+                        newCode = newCode - ASCII_RANGE;
+                    } else if (newCode < ASCII_START) {
+                        newCode = newCode + ASCII_RANGE;
+                    }
+                    return String.fromCharCode(newCode);
+                }
+                // Нешифруемые символы (например, кириллица) остаются без изменений
+                return char;
+            }).join('');
+        }
+
+        /**
+         * Шифр Виженера (Vigenère Cipher)
+         * Работает со всем диапазоном печатаемых ASCII-символов.
+         */
+        function vigenere(text, key, encrypt = true) {
+            if (!text) return "";
+            if (!key || key.trim() === "") {
+                 showMessage("Ошибка ключа", "Для Виженера требуется ключевое слово (не пустое).", 'error');
+                 return;
+            }
+            key = key.trim();
+
+            let result = '';
+            let keyIndex = 0;
+
+            for (let i = 0; i < text.length; i++) {
+                const textCode = text.charCodeAt(i);
+                
+                if (textCode >= ASCII_START && textCode <= ASCII_END) {
+                    const keyChar = key.charCodeAt(keyIndex % key.length);
+                    const keyShift = (keyChar - ASCII_START);
+                    
+                    let shift = keyShift;
+                    if (!encrypt) {
+                        shift = -keyShift;
+                    }
+                    
+                    // Нормализуем сдвиг
+                    shift = (shift % ASCII_RANGE + ASCII_RANGE) % ASCII_RANGE;
+
+                    let newCode = textCode + shift;
+                    
+                    if (newCode > ASCII_END) {
+                        newCode = newCode - ASCII_RANGE;
+                    } else if (newCode < ASCII_START) {
+                        newCode = newCode + ASCII_RANGE;
+                    }
+
+                    result += String.fromCharCode(newCode);
+                    keyIndex++; // Двигаем ключ только для шифруемых символов
+
+                } else {
+                    result += text[i];
+                    // Ключ не двигаем, если символ не шифруется
+                }
+            }
+            return result;
+        }
+
+        /**
+         * Шифр XOR (XOR Cipher)
+         * Побитовое исключающее ИЛИ (XOR)
+         */
+        function xorCipher(text, key) {
+             if (!text) return "";
+             if (!key || key.trim() === "") {
+                 showMessage("Ошибка ключа", "Для XOR требуется ключ (не пустая строка).", 'error');
+                 return;
+             }
+             
+             let result = '';
+             for (let i = 0; i < text.length; i++) {
+                 // XOR работает для шифрования и дешифрования одинаково
+                 const charCode = text.charCodeAt(i);
+                 const keyChar = key.charCodeAt(i % key.length);
+                 // Применяем XOR и возвращаем символ
+                 result += String.fromCharCode(charCode ^ keyChar);
+             }
+             return result;
+        }
+
+        /**
+         * Base64 (Кодирование)
+         * Кодирует строку в Base64.
+         */
+        function base64Encode(text) {
+             if (!text) return "";
+             try {
+                // Используем стандартные JS-функции для Base64
+                return btoa(unescape(encodeURIComponent(text)));
+             } catch (e) {
+                 showMessage("Ошибка кодирования", "Не удалось закодировать в Base64. Убедитесь, что текст в UTF-8.", 'error');
+                 return "";
+             }
+        }
+
+        /**
+         * Base64 (Декодирование)
+         * Декодирует строку из Base64.
+         */
+        function base64Decode(encoded) {
+             if (!encoded) return "";
+             try {
+                // Используем стандартные JS-функции
+                return decodeURIComponent(escape(atob(encoded)));
+             } catch (e) {
+                 showMessage("Ошибка декодирования", "Неверный формат Base64. Проверьте, что строка корректна.", 'error');
+                 return "";
+             }
+        }
+
+
+        // --- UI Callbacks ---
+
+        window.encrypt = () => {
+            const plaintext = document.getElementById('plaintext').value;
+            const keyInput = document.getElementById('keyInput').value;
+            const cipher = document.getElementById('cipherSelect').value;
+            let ciphertext = "";
+            let key;
+
+            try {
+                switch (cipher) {
+                    case 'CAESAR':
+                        key = parseInt(keyInput, 10);
+                        ciphertext = caesar(plaintext, key, true);
+                        break;
+                    case 'VIGENERE':
+                        ciphertext = vigenere(plaintext, keyInput, true);
+                        break;
+                    case 'XOR':
+                        ciphertext = xorCipher(plaintext, keyInput);
+                        break;
+                    case 'BASE64':
+                        ciphertext = base64Encode(plaintext);
+                        break;
+                    default:
+                        showMessage("Ошибка", "Неизвестный шифр.", 'error');
+                        return;
+                }
+                document.getElementById('ciphertext').value = ciphertext;
+                if (plaintext) {
+                    showMessage("Успех", "Текст зашифрован.", 'success');
+                }
+            } catch (e) {
+                console.error(e);
+                showMessage("Критическая ошибка", e.message, 'error');
+            }
+        };
+
+        window.decrypt = () => {
+            const ciphertext = document.getElementById('ciphertext').value;
+            const keyInput = document.getElementById('keyInput').value;
+            const cipher = document.getElementById('cipherSelect').value;
+            let plaintext = "";
+            let key;
+
+            try {
+                switch (cipher) {
+                    case 'CAESAR':
+                        key = parseInt(keyInput, 10);
+                        plaintext = caesar(ciphertext, key, false); // Дешифрование
+                        break;
+                    case 'VIGENERE':
+                        plaintext = vigenere(ciphertext, keyInput, false); // Дешифрование
+                        break;
+                    case 'XOR':
+                         // XOR обратима: шифрование = дешифрование
+                        plaintext = xorCipher(ciphertext, keyInput); 
+                        break;
+                    case 'BASE64':
+                        plaintext = base64Decode(ciphertext);
+                        break;
+                    default:
+                        showMessage("Ошибка", "Неизвестный шифр.", 'error');
+                        return;
+                }
+                document.getElementById('plaintext').value = plaintext;
+                if (ciphertext) {
+                    showMessage("Успех", "Текст дешифрован.", 'success');
+                }
+            } catch (e) {
+                console.error(e);
+                showMessage("Критическая ошибка", e.message, 'error');
+            }
+        };
+        
+        // Initial setup
+        window.onload = updateKeyInput;
+
+    </script>
+</body>
+</html>
