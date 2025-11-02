@@ -1,0 +1,480 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cyber Puzzle Challenge</title>
+    <!-- Загрузка Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700;800&family=Roboto+Mono:wght@400;700&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #0f172a; /* Dark Blue Background */
+            color: #e2e8f0;
+        }
+        .game-card {
+            background-color: #1e293b; /* Slightly lighter card background */
+            box-shadow: 0 15px 30px rgba(0, 0, 0, 0.4);
+            border: 1px solid #334155;
+        }
+        .console-font {
+            font-family: 'Roboto Mono', monospace;
+        }
+        .glow-text {
+            text-shadow: 0 0 5px rgba(59, 130, 246, 0.5);
+        }
+        .animate-solve {
+            animation: bounceIn 0.8s ease-out;
+        }
+        @keyframes bounceIn {
+            0% { transform: scale(0.5); opacity: 0; }
+            60% { transform: scale(1.1); opacity: 1; }
+            100% { transform: scale(1); }
+        }
+        .tool-button:disabled {
+            cursor: not-allowed;
+            opacity: 0.6;
+        }
+    </style>
+</head>
+<body class="p-4 md:p-8 flex items-start justify-center min-h-screen">
+
+    <!-- Основной контейнер игры -->
+    <div class="w-full max-w-5xl game-card p-6 md:p-10 rounded-2xl transition-all duration-300">
+        <header class="text-center mb-8">
+            <h1 class="text-3xl md:text-4xl font-extrabold text-blue-400 mb-2 glow-text">
+                Cyber Puzzle Challenge
+            </h1>
+            <p class="text-gray-400 console-font">
+                Дешифруйте тайные сообщения, чтобы заработать очки!
+            </p>
+        </header>
+
+        <!-- Статус игры -->
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8 text-center console-font">
+            <div class="p-3 bg-gray-700 rounded-lg">Счет: <span id="scoreDisplay" class="font-bold text-green-400">0</span></div>
+            <div class="p-3 bg-gray-700 rounded-lg">Уровень: <span id="levelDisplay" class="font-bold text-blue-400">1</span></div>
+            <div class="p-3 bg-gray-700 rounded-lg">Время: <span id="timerDisplay" class="font-bold text-yellow-400">0:00</span></div>
+        </div>
+
+        <!-- Центральная область Головоломки -->
+        <div id="puzzleContainer">
+            <!-- Тип шифра и Подсказка -->
+            <div class="mb-4 p-4 rounded-lg bg-gray-800 border border-gray-700">
+                <p class="text-lg font-bold mb-1 text-blue-300">Шифр: <span id="cipherTypeDisplay" class="font-normal text-white console-font">Нажмите СТАРТ</span></p>
+                <p class="text-sm text-gray-400">Подсказка: <span id="hintDisplay" class="text-yellow-300 console-font">...</span></p>
+            </div>
+
+            <!-- Зашифрованное сообщение -->
+            <div class="mb-6 p-6 rounded-xl bg-black border-2 border-red-500/50">
+                <h3 class="text-lg font-bold text-red-300 mb-2">ЗАШИФРОВАННОЕ СООБЩЕНИЕ (Ciphertext)</h3>
+                <p id="ciphertextDisplay" class="text-2xl console-font break-all">Нажмите СТАРТ, чтобы начать игру.</p>
+            </div>
+
+            <!-- Ввод ответа -->
+            <div class="mb-6">
+                <label for="answerInput" class="block text-lg font-bold text-green-300 mb-2">ВАШ ОТВЕТ (Plaintext)</label>
+                <textarea id="answerInput" rows="4" placeholder="Введите расшифрованное сообщение здесь..."
+                          class="w-full p-4 rounded-xl bg-gray-800 border border-gray-600 text-white console-font resize-none focus:border-blue-500 focus:ring-blue-500"></textarea>
+            </div>
+
+            <!-- Инструменты и Действия -->
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+                <button id="startButton" onclick="startGame()"
+                        class="md:col-span-4 bg-indigo-600 text-white p-3 rounded-xl font-bold text-lg hover:bg-indigo-700 transition duration-150">
+                    СТАРТ
+                </button>
+                <button id="submitButton" onclick="checkAnswer()" disabled
+                        class="md:col-span-2 bg-green-600 text-white p-3 rounded-xl font-bold hover:bg-green-700 transition duration-150 disabled:opacity-50">
+                    ПРОВЕРИТЬ ОТВЕТ
+                </button>
+                <button id="toolBase64" onclick="useTool('BASE64')" disabled
+                        class="tool-button bg-gray-600 text-white p-3 rounded-xl font-bold hover:bg-gray-700 transition duration-150 disabled:opacity-50">
+                    Tool: Base64 Decode (-15s)
+                </button>
+                <button id="toolCaesar" onclick="useTool('CAESAR')" disabled
+                        class="tool-button bg-gray-600 text-white p-3 rounded-xl font-bold hover:bg-gray-700 transition duration-150 disabled:opacity-50">
+                    Tool: Caesar Crack (-30s)
+                </button>
+            </div>
+        </div>
+
+        <!-- Таблица лидеров -->
+        <div class="mt-10 pt-6 border-t border-gray-700">
+            <h2 class="text-2xl font-bold text-yellow-300 mb-4">Таблица Лидеров (Local)</h2>
+            <div id="leaderboard" class="space-y-2 console-font">
+                <p class="text-gray-400">Загрузка...</p>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- JavaScript Game Logic -->
+    <script>
+        // --- Game State ---
+        let score = 0;
+        let level = 0;
+        let currentPuzzle = null;
+        let timerInterval = null;
+        let timeElapsed = 0;
+        let isGameActive = false;
+        const TIME_PENALTY = {
+            'BASE64': 15,
+            'CAESAR': 30
+        };
+        const LEADERBOARD_KEY = 'cyber_puzzle_leaders';
+        const BASE_SCORE_PER_LEVEL = 1000;
+
+        // --- Cipher Constants and Logic ---
+        const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*()-=_+[]{}|;:,.<>/? ';
+        const ALPHABET_LENGTH = ALPHABET.length;
+
+        // Caesar Cipher (supports the full defined alphabet)
+        function caesar(text, shift, encrypt = true) {
+            shift = (shift % ALPHABET_LENGTH + ALPHABET_LENGTH) % ALPHABET_LENGTH;
+            if (!encrypt) shift = (ALPHABET_LENGTH - shift) % ALPHABET_LENGTH;
+
+            return text.split('').map(char => {
+                const index = ALPHABET.indexOf(char);
+                if (index === -1) return char; // Non-supported characters (like Cyrillic) pass through
+                const newIndex = (index + shift) % ALPHABET_LENGTH;
+                return ALPHABET[newIndex];
+            }).join('');
+        }
+
+        // Vigenère Cipher
+        function vigenere(text, key, encrypt = true) {
+            key = key.toUpperCase();
+            let result = '';
+            let keyIndex = 0;
+            
+            for (let i = 0; i < text.length; i++) {
+                const char = text[i];
+                const charIndex = ALPHABET.indexOf(char);
+                
+                if (charIndex === -1) {
+                    result += char;
+                    continue;
+                }
+                
+                // Use only the index of the key character within A-Z for shift calculation
+                const keyChar = key[keyIndex % key.length];
+                const keyShift = keyChar.toUpperCase().charCodeAt(0) - 'A'.charCodeAt(0);
+                
+                let shift = keyShift;
+                if (!encrypt) shift = (ALPHABET_LENGTH - keyShift) % ALPHABET_LENGTH;
+                
+                const newIndex = (charIndex + shift) % ALPHABET_LENGTH;
+                result += ALPHABET[newIndex];
+                
+                keyIndex++;
+            }
+            return result;
+        }
+
+        // XOR Cipher (uses key string to XOR character codes)
+        function xorCipher(text, key) {
+             let result = '';
+             for (let i = 0; i < text.length; i++) {
+                 const charCode = text.charCodeAt(i);
+                 const keyChar = key.charCodeAt(i % key.length);
+                 result += String.fromCharCode(charCode ^ keyChar);
+             }
+             return result;
+        }
+
+        // Base64 (Encoding/Decoding)
+        function base64Encode(text) { return btoa(unescape(encodeURIComponent(text))); }
+        function base64Decode(encoded) { return decodeURIComponent(escape(atob(encoded))); }
+        
+        // --- Game Flow ---
+
+        function startGame() {
+            if (isGameActive) {
+                if (!confirm("Вы уверены, что хотите начать новую игру? Текущий прогресс будет потерян.")) return;
+                clearInterval(timerInterval);
+            }
+            
+            score = 0;
+            level = 0;
+            timeElapsed = 0;
+            isGameActive = true;
+            
+            // UI updates
+            document.getElementById('startButton').textContent = 'Сбросить Игру';
+            document.getElementById('submitButton').disabled = false;
+            document.getElementById('answerInput').value = '';
+            document.getElementById('answerInput').disabled = false;
+            document.getElementById('toolBase64').disabled = false;
+            document.getElementById('toolCaesar').disabled = false;
+            
+            // Start timer
+            timerInterval = setInterval(updateTimer, 1000);
+            
+            logMessage("Игра началась. Удачи!", 'info');
+            nextPuzzle();
+        }
+
+        function updateTimer() {
+            timeElapsed++;
+            const minutes = String(Math.floor(timeElapsed / 60)).padStart(1, '0');
+            const seconds = String(timeElapsed % 60).padStart(2, '0');
+            document.getElementById('timerDisplay').textContent = `${minutes}:${seconds}`;
+        }
+        
+        function stopGame() {
+            isGameActive = false;
+            clearInterval(timerInterval);
+            document.getElementById('submitButton').disabled = true;
+            document.getElementById('answerInput').disabled = true;
+            document.getElementById('toolBase64').disabled = true;
+            document.getElementById('toolCaesar').disabled = true;
+            document.getElementById('startButton').textContent = 'Начать Снова';
+            logMessage(`Игра окончена! Финальный счет: ${score}. Время: ${document.getElementById('timerDisplay').textContent}`, 'success');
+            
+            // Save to Leaderboard
+            saveToLeaderboard(score, timeElapsed);
+            renderLeaderboard();
+        }
+
+        function nextPuzzle() {
+            if (!isGameActive) return;
+            level++;
+            
+            // Adjust difficulty based on level
+            const difficulty = Math.min(level, 5); // Max difficulty 5
+            
+            currentPuzzle = generatePuzzle(difficulty);
+            
+            document.getElementById('levelDisplay').textContent = level;
+            document.getElementById('cipherTypeDisplay').textContent = currentPuzzle.cipherName;
+            document.getElementById('ciphertextDisplay').textContent = currentPuzzle.ciphertext;
+            document.getElementById('hintDisplay').textContent = currentPuzzle.hint;
+            document.getElementById('answerInput').value = '';
+            
+            // Enable/disable specific tools based on the cipher type
+            document.getElementById('toolBase64').disabled = (currentPuzzle.cipherId !== 'BASE64_XOR' && currentPuzzle.cipherId !== 'BASE64');
+            document.getElementById('toolCaesar').disabled = (currentPuzzle.cipherId !== 'CAESAR');
+            
+            // Add a visual flair to the new puzzle
+            const cipherTextEl = document.getElementById('ciphertextDisplay');
+            cipherTextEl.classList.remove('animate-solve');
+            void cipherTextEl.offsetWidth; // Trigger reflow
+            cipherTextEl.classList.add('animate-solve');
+
+            logMessage(`Уровень ${level} загружен. Шифр: ${currentPuzzle.cipherName}.`, 'info');
+        }
+        
+        function generatePuzzle(difficulty) {
+            const cipherTypes = ['CAESAR', 'VIGENERE', 'XOR', 'BASE64', 'BASE64_XOR'];
+            const randomType = cipherTypes[Math.floor(Math.random() * cipherTypes.length)];
+            
+            const commonWords = ["CYBER", "SAFETY", "ENCRYPT", "DECRYPT", "PUZZLE", "HACKER", "SECRET", "ALGORITHM", "KEY", "ACCESS"];
+            const plaintext = commonWords[Math.floor(Math.random() * commonWords.length)] + 
+                              " " + Math.random().toString(36).substring(2, 2 + 5 + difficulty).toUpperCase(); // Longer for higher difficulty
+            
+            let ciphertext = '';
+            let key = '';
+            let cipherName = '';
+            let hint = '';
+
+            switch (randomType) {
+                case 'CAESAR':
+                    key = Math.floor(Math.random() * 10) + difficulty; // Shift 1 to 15
+                    ciphertext = caesar(plaintext, key, true);
+                    cipherName = 'Caesar Cipher';
+                    hint = `Сдвиговой шифр. Используется: ${ALPHABET_LENGTH} символов.`;
+                    break;
+                case 'VIGENERE':
+                    const keys = ["CYBER", "SECURE", "MASTER", "CODE"];
+                    key = keys[Math.floor(Math.random() * keys.length)];
+                    ciphertext = vigenere(plaintext, key, true);
+                    cipherName = 'Vigenère Cipher';
+                    hint = `Полиалфавитный шифр. Используется ключевое слово длиной ${key.length}.`;
+                    break;
+                case 'XOR':
+                    key = Math.random().toString(36).substring(2, 2 + difficulty);
+                    ciphertext = xorCipher(plaintext, key);
+                    cipherName = 'XOR Cipher';
+                    hint = `Побитовый XOR. Ключ: '${key.length} символов'.`;
+                    break;
+                case 'BASE64':
+                    ciphertext = base64Encode(plaintext);
+                    cipherName = 'Base64 Encoding';
+                    hint = `Это не шифр, а кодирование. Начинается с: ${ciphertext.substring(0, 5)}...`;
+                    break;
+                case 'BASE64_XOR':
+                    // Двойное шифрование: XOR, затем Base64
+                    const xorKey = Math.random().toString(36).substring(2, 2 + difficulty);
+                    const xorCiphertext = xorCipher(plaintext, xorKey);
+                    ciphertext = base64Encode(xorCiphertext);
+                    cipherName = 'Base64 (XOR) Layered';
+                    hint = `Двойное шифрование. Сначала Base64, затем XOR. Ключ XOR: ${xorKey.length} символов.`;
+                    key = xorKey; // Store XOR key for check
+                    break;
+            }
+
+            return {
+                cipherId: randomType,
+                cipherName: cipherName,
+                ciphertext: ciphertext,
+                plaintext: plaintext,
+                key: key,
+                hint: hint
+            };
+        }
+        
+        function checkAnswer() {
+            if (!isGameActive) return;
+
+            const inputAnswer = document.getElementById('answerInput').value.trim().toUpperCase();
+            const correctText = currentPuzzle.plaintext.trim().toUpperCase();
+
+            if (inputAnswer === correctText) {
+                const levelScore = BASE_SCORE_PER_LEVEL * level;
+                const timeScore = Math.max(0, 1000 - timeElapsed * 10); // Penalty for time
+                const roundScore = levelScore + timeScore;
+                
+                score += roundScore;
+                document.getElementById('scoreDisplay').textContent = score;
+                logMessage(`Успех! +${roundScore.toFixed(0)} очков. Время влияет на счет!`, 'success');
+                nextPuzzle();
+            } else {
+                logMessage("Неверный ответ. Попробуйте еще раз или используйте инструмент.", 'error');
+            }
+        }
+        
+        function useTool(toolId) {
+            if (!isGameActive || !currentPuzzle) return;
+
+            const penalty = TIME_PENALTY[toolId];
+            let success = false;
+            
+            timeElapsed += penalty;
+            logMessage(`Инструмент '${toolId}' использован. Штраф: +${penalty} секунд.`, 'info');
+
+            try {
+                if (toolId === 'BASE64' && (currentPuzzle.cipherId === 'BASE64' || currentPuzzle.cipherId === 'BASE64_XOR')) {
+                    const partiallyDecoded = base64Decode(currentPuzzle.ciphertext);
+                    document.getElementById('ciphertextDisplay').textContent = partiallyDecoded;
+                    currentPuzzle.ciphertext = partiallyDecoded; // Update ciphertext for the next step
+                    
+                    if (currentPuzzle.cipherId === 'BASE64_XOR') {
+                         currentPuzzle.cipherId = 'XOR'; // Downgrade to XOR puzzle
+                         document.getElementById('cipherTypeDisplay').textContent = 'XOR Cipher (Decoded from Base64)';
+                         document.getElementById('hintDisplay').textContent = `Теперь это чистый XOR. Ключ: ${currentPuzzle.key.length} символов.`;
+                    } else {
+                         // Base64 is fully solved
+                         document.getElementById('answerInput').value = partiallyDecoded;
+                         checkAnswer(); // Auto check the now-decoded answer
+                    }
+                    success = true;
+
+                } else if (toolId === 'CAESAR' && currentPuzzle.cipherId === 'CAESAR') {
+                    // Caesar brute force attempt
+                    let found = false;
+                    for (let s = 1; s <= ALPHABET_LENGTH; s++) {
+                        const attempt = caesar(currentPuzzle.ciphertext, s, false);
+                        
+                        // Simple heuristic: check if the attempt contains common English/Crypto words
+                        if (attempt.includes("THE") || attempt.includes("AND") || attempt.includes("CYBER")) {
+                            document.getElementById('answerInput').value = attempt;
+                            logMessage(`Tool: Найден потенциальный Plaintext. Попробуйте проверить ответ.`, 'success');
+                            found = true;
+                            break;
+                        }
+                    }
+                    if (!found) {
+                        logMessage(`Tool: Не удалось найти решение Caesar.`, 'error');
+                    }
+                    success = true;
+                } else {
+                    logMessage("Этот инструмент не подходит для текущего шифра.", 'error');
+                }
+
+                if (success) {
+                    // Disable tool after single use per puzzle
+                    document.getElementById(`tool${toolId}`).disabled = true;
+                }
+
+            } catch (e) {
+                logMessage(`Ошибка инструмента: ${e.message}.`, 'error');
+            }
+        }
+
+        // --- Leaderboard Logic ---
+        function loadLeaderboard() {
+            try {
+                const leaders = JSON.parse(localStorage.getItem(LEADERBOARD_KEY)) || [];
+                // Ensure it's sorted by score descending, then time ascending
+                leaders.sort((a, b) => b.score - a.score || a.time - b.time);
+                return leaders.slice(0, 10); // Top 10
+            } catch (e) {
+                console.error("Error loading leaderboard:", e);
+                return [];
+            }
+        }
+        
+        function saveToLeaderboard(finalScore, finalTime) {
+            const playerName = prompt("Поздравляем! Введите ваше имя для таблицы лидеров:");
+            if (!playerName || finalScore === 0) return;
+
+            const leaders = loadLeaderboard();
+            leaders.push({ name: playerName.substring(0, 15), score: finalScore, time: finalTime, date: new Date().toLocaleDateString('ru-RU') });
+            
+            leaders.sort((a, b) => b.score - a.score || a.time - b.time);
+            localStorage.setItem(LEADERBOARD_KEY, JSON.stringify(leaders.slice(0, 10)));
+        }
+
+        function renderLeaderboard() {
+            const container = document.getElementById('leaderboard');
+            const leaders = loadLeaderboard();
+
+            if (leaders.length === 0) {
+                container.innerHTML = '<p class="text-gray-400">Таблица лидеров пуста.</p>';
+                return;
+            }
+            
+            container.innerHTML = `
+                <div class="grid grid-cols-4 font-bold text-blue-300 border-b border-gray-600 pb-1">
+                    <span>#</span>
+                    <span>Имя</span>
+                    <span>Счет</span>
+                    <span>Время</span>
+                </div>
+            `;
+
+            leaders.forEach((leader, index) => {
+                const minutes = String(Math.floor(leader.time / 60)).padStart(1, '0');
+                const seconds = String(leader.time % 60).padStart(2, '0');
+                const timeStr = `${minutes}:${seconds}`;
+
+                container.innerHTML += `
+                    <div class="grid grid-cols-4 py-1 border-b border-gray-800">
+                        <span class="text-yellow-400">${index + 1}</span>
+                        <span class="truncate">${leader.name}</span>
+                        <span class="text-green-400">${leader.score.toLocaleString()}</span>
+                        <span class="text-red-400">${timeStr}</span>
+                    </div>
+                `;
+            });
+        }
+        
+        function logMessage(message, type) {
+            // Simple log to console for debugging, removed from UI for cleaner presentation
+            const color = type === 'success' ? 'green' : type === 'error' ? 'red' : 'lightblue';
+            console.log(`%c[Log] ${message}`, `color: ${color};`);
+        }
+
+
+        // --- Initialization ---
+        window.onload = () => {
+             renderLeaderboard();
+             // Simple welcome message on ciphertext display
+             document.getElementById('ciphertextDisplay').innerHTML = 'Нажмите СТАРТ, чтобы начать криптографическую головоломку.';
+        };
+
+    </script>
+</body>
+</html>

@@ -1,0 +1,546 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cyber Threat Simulator Game</title>
+    <!-- Загрузка Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=Roboto+Mono:wght@400;700&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #0d1117; /* GitHub Dark Theme Background */
+            color: #c9d1d9;
+        }
+        .console-font {
+            font-family: 'Roboto Mono', monospace;
+        }
+        .game-card {
+            background-color: #161b22; /* Slightly lighter than body */
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.5);
+            border: 1px solid #30363d;
+        }
+        .node {
+            transition: all 0.3s ease;
+            cursor: pointer;
+            border: 2px solid transparent;
+        }
+        .node:hover {
+            transform: scale(1.05);
+        }
+        .node-selected {
+            border-color: #38a169; /* Green border for selection */
+            box-shadow: 0 0 10px rgba(56, 161, 105, 0.5);
+        }
+        .node-active {
+            animation: pulse 1s infinite alternate;
+        }
+        @keyframes pulse {
+            from { box-shadow: 0 0 10px rgba(255, 255, 255, 0.2); }
+            to { box-shadow: 0 0 20px rgba(52, 211, 163, 0.8); }
+        }
+        /* Анимация атаки */
+        .attack-line {
+            position: absolute;
+            height: 3px;
+            background-color: #ff0000;
+            opacity: 0.8;
+            pointer-events: none;
+            transition: opacity 0.1s ease-out;
+            animation: attack-flow 0.5s linear infinite;
+        }
+        @keyframes attack-flow {
+            from { background-position: 0 0; }
+            to { background-position: -100px 0; }
+        }
+    </style>
+</head>
+<body class="p-4 md:p-8 flex items-start justify-center min-h-screen">
+
+    <!-- Основной контейнер симулятора -->
+    <div class="w-full max-w-6xl game-card p-6 md:p-8 rounded-xl">
+        <header class="text-center mb-6">
+            <h1 class="text-3xl md:text-4xl font-extrabold text-blue-400 mb-2">
+                Cyber Threat Simulator
+            </h1>
+            <p class="text-gray-400 console-font">
+                // v1.0 | Настройте защиту или проведите атаку
+            </p>
+        </header>
+
+        <!-- Статус и статистика -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6 text-sm console-font">
+            <div class="p-3 bg-gray-800 rounded-lg">Режим: <span id="modeDisplay" class="font-bold text-yellow-400">ЗАЩИТА</span></div>
+            <div class="p-3 bg-gray-800 rounded-lg">Бюджет: <span id="budgetDisplay" class="font-bold text-green-400">10000 $</span></div>
+            <div class="p-3 bg-gray-800 rounded-lg">Рейтинг Безопасности: <span id="ratingDisplay" class="font-bold text-red-400">F</span></div>
+        </div>
+
+        <!-- Центральная область: Карта сети и Панель управления -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+            <!-- Колонка 1: Карта сети (Визуализация) -->
+            <div class="lg:col-span-2 p-4 bg-gray-800 rounded-xl h-96 relative flex flex-col items-center justify-around border border-gray-700">
+                <h2 class="text-xl font-semibold mb-3 text-blue-300">Интерактивная Карта Сети</h2>
+                <div id="networkMap" class="w-full h-full flex items-center justify-center relative">
+                    <!-- Nodes will be rendered here -->
+                </div>
+                <!-- Контейнер для анимации атаки -->
+                <div id="attackAnimations" class="absolute inset-0 pointer-events-none"></div>
+            </div>
+
+            <!-- Колонка 2: Панель управления и Консоль -->
+            <div class="lg:col-span-1 flex flex-col space-y-4">
+                
+                <!-- Переключатель Режима -->
+                <div class="p-4 game-card rounded-xl">
+                    <label class="block text-md font-semibold mb-2">Выберите Режим:</label>
+                    <select id="gameMode" onchange="setMode(this.value)"
+                            class="w-full p-2 bg-gray-700 rounded-lg border border-gray-600 text-white focus:ring-blue-500 focus:border-blue-500">
+                        <option value="DEFENSE">Режим Защиты (Defender)</option>
+                        <option value="ATTACK">Режим Атаки (Attacker)</option>
+                    </select>
+                </div>
+
+                <!-- Панель Защитника (Defense Mode) -->
+                <div id="defensePanel" class="p-4 game-card rounded-xl">
+                    <h3 class="text-lg font-bold mb-3 text-green-400">Улучшение Защиты</h3>
+                    <div id="defenseActions" class="space-y-3">
+                        <!-- Defense upgrades will be rendered here -->
+                    </div>
+                </div>
+
+                <!-- Панель Атакующего (Attack Mode) -->
+                <div id="attackPanel" class="p-4 game-card rounded-xl hidden">
+                    <h3 class="text-lg font-bold mb-3 text-red-400">Выбор Атаки</h3>
+                    <div class="mb-3">
+                         <label class="block text-sm mb-1 text-gray-400">Цель:</label>
+                         <div id="targetNodeDisplay" class="p-2 bg-gray-700 rounded-lg console-font">Выберите узел на карте</div>
+                    </div>
+                    <div id="attackActions" class="space-y-3">
+                        <!-- Attack options will be rendered here -->
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Консоль Логов -->
+        <div class="mt-6 p-4 bg-gray-900 rounded-xl border border-gray-700">
+            <h2 class="text-xl font-semibold mb-3 text-blue-300">Консоль Логов</h2>
+            <div id="logConsole" class="h-40 overflow-y-auto console-font text-sm p-2 bg-black rounded-lg text-green-300 space-y-1">
+                <p>> Система запущена. Инициализация сети...</p>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- JavaScript Game Logic -->
+    <script>
+        // --- Game State and Constants ---
+        const initialBudget = 100000000;
+        let gameMode = 'DEFENSE';
+        let currentBudget = initialBudget;
+        let selectedNodeId = null;
+        
+        // Определение узлов сети и их характеристик
+        const NETWORK_NODES = {
+            'FIREWALL': { name: 'Firewall / Edge', icon: '🔒', type: 'Gateway', defense: { firewall: 1, waf: 0, training: 0 }, security: 10, targetable: false, position: { x: 50, y: 10 } },
+            'WEB_SERVER': { name: 'Web Server (WWW)', icon: '🌐', type: 'Server', defense: { firewall: 0, waf: 0, training: 0 }, security: 5, targetable: true, position: { x: 25, y: 50 } },
+            'DB_SERVER': { name: 'Database Server (DB)', icon: '💾', type: 'Server', defense: { firewall: 0, waf: 0, training: 0 }, security: 20, targetable: true, position: { x: 75, y: 50 } },
+            'WORKSTATION': { name: 'Workstation (User)', icon: '💻', type: 'Client', defense: { firewall: 0, waf: 0, training: 0 }, security: 2, targetable: true, position: { x: 50, y: 90 } },
+        };
+        
+        // Определение типов атак (Сложность и стоимость)
+        const ATTACKS = [
+            { id: 'PHISHING', name: 'Phishing (Фишинг)', cost: 100, difficulty: 5, defenseNeeded: 'training', targetType: 'Client', description: 'Цель: User Workstation. Обходит Training/Firewall.' },
+            { id: 'SQLI', name: 'SQL Injection (SQLi)', cost: 300, difficulty: 15, defenseNeeded: 'waf', targetType: 'Server', description: 'Цель: DB Server. Обходит WAF/Firewall.' },
+            { id: 'BRUTE_FORCE', name: 'Brute Force (Перебор)', cost: 200, difficulty: 10, defenseNeeded: 'firewall', targetType: 'Server', description: 'Цель: Web Server. Проверяется Firewall.' },
+        ];
+
+        // Определение доступных защитных механизмов
+        const DEFENSES = [
+            { id: 'FIREWALL', name: 'Улучшить Firewall (L1)', cost: 500, defenseType: 'firewall', maxLevel: 3, description: 'Базовая защита от перебора.' },
+            { id: 'WAF', name: 'Установить WAF (L1)', cost: 1500, defenseType: 'waf', maxLevel: 2, description: 'Защита веб-приложений (SQLi/XSS).' },
+            { id: 'TRAINING', name: 'Провести Training (L1)', cost: 1000, defenseType: 'training', maxLevel: 1, description: 'Обучение пользователей (Фишинг).' },
+        ];
+
+
+        // --- Core Game Functions ---
+
+        /**
+         * Инициализирует и запускает игру
+         */
+        function initializeGame() {
+            setMode(gameMode);
+            renderNetworkMap();
+            renderDefenseActions();
+            renderAttackActions();
+            updateStats();
+            logMessage("Симулятор готов. Начните в режиме 'Защита'.", 'info');
+        }
+
+        /**
+         * Переключает режим игры (Защита/Атака)
+         * @param {string} mode - 'DEFENSE' или 'ATTACK'
+         */
+        function setMode(mode) {
+            gameMode = mode;
+            document.getElementById('modeDisplay').textContent = mode === 'DEFENSE' ? 'ЗАЩИТА' : 'АТАКА';
+            document.getElementById('modeDisplay').className = mode === 'DEFENSE' ? 'font-bold text-yellow-400' : 'font-bold text-red-400';
+            
+            document.getElementById('defensePanel').classList.toggle('hidden', mode !== 'DEFENSE');
+            document.getElementById('attackPanel').classList.toggle('hidden', mode !== 'ATTACK');
+            
+            selectedNodeId = null;
+            document.getElementById('targetNodeDisplay').textContent = 'Выберите узел на карте';
+            renderNetworkMap(); // Перерисовка для сброса выделения
+            logMessage(`Режим переключен на: ${mode}`, 'info');
+        }
+
+        /**
+         * Обновляет все отображаемые статистики (Бюджет, Рейтинг)
+         */
+        function updateStats() {
+            document.getElementById('budgetDisplay').textContent = `${currentBudget.toLocaleString()} $`;
+            const rating = calculateSecurityRating();
+            document.getElementById('ratingDisplay').textContent = rating.grade;
+            document.getElementById('ratingDisplay').className = `font-bold ${rating.color}`;
+        }
+
+        /**
+         * Рассчитывает общий рейтинг безопасности на основе защиты узлов
+         * @returns {{grade: string, color: string}}
+         */
+        function calculateSecurityRating() {
+            let totalDefense = 0;
+            let maxDefense = 0;
+            
+            // Простая сумма всех защитных уровней, кроме FIREWALL, т.к. он всегда 1.
+            const targetNodes = ['WEB_SERVER', 'DB_SERVER', 'WORKSTATION'];
+
+            targetNodes.forEach(id => {
+                const node = NETWORK_NODES[id];
+                totalDefense += (node.defense.firewall + node.defense.waf * 2 + node.defense.training * 3); // Взвешиваем защиту
+                maxDefense += (1 + 2 * 2 + 1 * 3); // Максимально возможный уровень
+            });
+
+            const score = totalDefense / maxDefense;
+            
+            let grade, color;
+            if (score >= 0.8) { grade = 'A'; color = 'text-green-500'; }
+            else if (score >= 0.6) { grade = 'B'; color = 'text-lime-500'; }
+            else if (score >= 0.4) { grade = 'C'; color = 'text-yellow-500'; }
+            else if (score >= 0.2) { grade = 'D'; color = 'text-orange-500'; }
+            else { grade = 'F'; color = 'text-red-500'; }
+
+            return { grade, color };
+        }
+
+        /**
+         * Добавляет сообщение в консоль логов.
+         * @param {string} message - Текст сообщения.
+         * @param {string} type - Тип: 'attack', 'defense', 'error', 'info'.
+         */
+        function logMessage(message, type) {
+            const console = document.getElementById('logConsole');
+            const now = new Date();
+            const time = now.toLocaleTimeString('ru-RU');
+            
+            let color = 'text-gray-300';
+            let prefix = '//';
+
+            switch (type) {
+                case 'attack': color = 'text-red-400'; prefix = 'ATTACK> '; break;
+                case 'defense': color = 'text-green-400'; prefix = 'DEFEND> '; break;
+                case 'error': color = 'text-yellow-600'; prefix = 'ERROR> '; break;
+                case 'info': color = 'text-blue-400'; prefix = 'SYSTEM> '; break;
+            }
+
+            const logEntry = document.createElement('p');
+            logEntry.className = color;
+            logEntry.innerHTML = `<span class="text-gray-500">[${time}]</span> ${prefix}${message}`;
+            
+            console.appendChild(logEntry);
+            console.scrollTop = console.scrollHeight;
+        }
+
+
+        // --- Network Visualization ---
+
+        /**
+         * Рендеринг карты сети и узлов
+         */
+        function renderNetworkMap() {
+            const map = document.getElementById('networkMap');
+            map.innerHTML = '';
+            
+            // Создание линий соединения (Простое соединение всех со всеми, кроме FIREWALL)
+            const nodeIds = Object.keys(NETWORK_NODES);
+            const connections = [
+                ['FIREWALL', 'WEB_SERVER'],
+                ['FIREWALL', 'DB_SERVER'],
+                ['FIREWALL', 'WORKSTATION'],
+                ['WEB_SERVER', 'DB_SERVER'],
+                ['DB_SERVER', 'WORKSTATION'],
+            ];
+            
+            // Рендеринг линий
+            connections.forEach(([id1, id2]) => {
+                const node1 = NETWORK_NODES[id1].position;
+                const node2 = NETWORK_NODES[id2].position;
+                
+                const distance = Math.sqrt(Math.pow(node1.x - node2.x, 2) + Math.pow(node1.y - node2.y, 2));
+                const angle = Math.atan2(node2.y - node1.y, node2.x - node1.x) * (180 / Math.PI);
+
+                const line = document.createElement('div');
+                line.style.position = 'absolute';
+                line.style.width = `${distance * 0.9}rem`; // Преобразование % в rem для масштаба
+                line.style.height = '1px';
+                line.style.backgroundColor = '#4b5563'; // Gray line
+                line.style.left = `${node1.x}%`;
+                line.style.top = `${node1.y}%`;
+                line.style.transformOrigin = '0 0';
+                line.style.transform = `translate(-50%, -50%) rotate(${angle}deg)`;
+                map.appendChild(line);
+            });
+
+            // Рендеринг узлов
+            nodeIds.forEach(id => {
+                const nodeData = NETWORK_NODES[id];
+                
+                const nodeEl = document.createElement('div');
+                nodeEl.id = `node-${id}`;
+                nodeEl.className = `node absolute w-16 h-16 rounded-xl flex flex-col items-center justify-center p-2 text-center text-xs console-font bg-gray-700 hover:bg-gray-600 ${id === selectedNodeId ? 'node-selected' : ''}`;
+                
+                nodeEl.style.left = `${nodeData.position.x}%`;
+                nodeEl.style.top = `${nodeData.position.y}%`;
+                nodeEl.style.transform = 'translate(-50%, -50%)'; // Центрирование по координатам
+
+                nodeEl.innerHTML = `
+                    <span class="text-2xl">${nodeData.icon}</span>
+                    <span class="mt-1">${nodeData.name}</span>
+                `;
+                
+                if (nodeData.targetable) {
+                    nodeEl.onclick = () => selectNode(id);
+                } else if (id === 'FIREWALL') {
+                    // Firewall всегда можно выбрать для улучшения защиты в режиме DEFENSE
+                    nodeEl.onclick = () => selectNode(id);
+                }
+
+                map.appendChild(nodeEl);
+            });
+        }
+        
+        /**
+         * Выбор узла на карте
+         * @param {string} id - ID выбранного узла
+         */
+        function selectNode(id) {
+            selectedNodeId = id;
+            renderNetworkMap();
+            
+            document.getElementById('targetNodeDisplay').textContent = NETWORK_NODES[id].name;
+            logMessage(`Выбран узел: ${NETWORK_NODES[id].name}.`, 'info');
+            
+            // Если режим защиты, обновляем действия защиты для выбранного узла
+            if (gameMode === 'DEFENSE') {
+                renderDefenseActions();
+            }
+        }
+
+
+        // --- Defense Mode Logic ---
+
+        /**
+         * Рендерит доступные действия защиты
+         */
+        function renderDefenseActions() {
+            const container = document.getElementById('defenseActions');
+            container.innerHTML = '';
+
+            // Если узел не выбран, показываем только информацию
+            if (!selectedNodeId) {
+                container.innerHTML = '<p class="text-sm text-gray-400">Выберите узел на карте, чтобы увидеть доступные улучшения.</p>';
+                return;
+            }
+            
+            const node = NETWORK_NODES[selectedNodeId];
+            
+            // Показываем текущие защиты
+            let defenseHtml = `<p class="text-xs font-semibold text-blue-300 mb-2">Текущая Защита:</p>`;
+            for (const type in node.defense) {
+                 defenseHtml += `<p class="text-xs console-font ml-2">${type}: ${node.defense[type]}</p>`;
+            }
+            container.innerHTML += defenseHtml;
+
+            // Рендерим кнопки улучшений
+            DEFENSES.forEach(def => {
+                const currentLevel = node.defense[def.defenseType];
+                const isDisabled = currentBudget < def.cost || currentLevel >= def.maxLevel;
+                const button = document.createElement('button');
+                
+                button.className = `w-full p-2 rounded-lg font-semibold text-sm transition ${isDisabled ? 'bg-gray-600 text-gray-400 cursor-not-allowed opacity-50' : 'bg-green-600 hover:bg-green-700 text-white'}`;
+                button.textContent = `${def.name} (${def.cost} $)`;
+                button.disabled = isDisabled;
+                button.onclick = () => applyDefense(def.defenseType, def.cost, def.maxLevel);
+                
+                if (currentLevel >= def.maxLevel) {
+                     button.textContent = `${def.name} (MAX)`;
+                }
+
+                container.appendChild(button);
+            });
+        }
+
+        /**
+         * Применяет выбранную защиту к выбранному узлу
+         * @param {string} defenseType - Тип защиты ('firewall', 'waf', 'training')
+         * @param {number} cost - Стоимость
+         * @param {number} maxLevel - Максимальный уровень
+         */
+        function applyDefense(defenseType, cost, maxLevel) {
+            if (!selectedNodeId) return;
+            const node = NETWORK_NODES[selectedNodeId];
+
+            if (currentBudget < cost) {
+                logMessage("Недостаточно бюджета для этого улучшения.", 'error');
+                return;
+            }
+
+            if (node.defense[defenseType] >= maxLevel) {
+                logMessage(`Защита ${defenseType} на узле ${node.name} уже максимального уровня.`, 'error');
+                return;
+            }
+
+            currentBudget -= cost;
+            node.defense[defenseType] += 1;
+            
+            logMessage(`Улучшение ${defenseType} применено к ${node.name}. Бюджет: -${cost} $.`, 'defense');
+            
+            renderDefenseActions();
+            updateStats();
+        }
+
+
+        // --- Attack Mode Logic ---
+
+        /**
+         * Рендерит доступные действия атаки
+         */
+        function renderAttackActions() {
+            const container = document.getElementById('attackActions');
+            container.innerHTML = '';
+            
+            ATTACKS.forEach(attack => {
+                const isDisabled = currentBudget < attack.cost;
+                const button = document.createElement('button');
+                
+                button.className = `w-full p-2 rounded-lg font-semibold text-sm transition ${isDisabled ? 'bg-gray-600 text-gray-400 cursor-not-allowed opacity-50' : 'bg-red-600 hover:bg-red-700 text-white'}`;
+                button.textContent = `${attack.name} (${attack.cost} $) - D: ${attack.difficulty}`;
+                button.disabled = isDisabled;
+                button.title = attack.description;
+                button.onclick = () => launchAttack(attack.id);
+
+                container.appendChild(button);
+            });
+        }
+        
+        /**
+         * Запуск выбранной атаки
+         * @param {string} attackId - ID атаки
+         */
+        function launchAttack(attackId) {
+            if (!selectedNodeId) {
+                logMessage("Выберите целевой узел для атаки.", 'error');
+                return;
+            }
+
+            const attack = ATTACKS.find(a => a.id === attackId);
+            const targetNode = NETWORK_NODES[selectedNodeId];
+            const sourceNode = NETWORK_NODES['FIREWALL']; // Все атаки начинаются с Edge
+            
+            if (currentBudget < attack.cost) {
+                logMessage("Недостаточно бюджета для этой атаки.", 'error');
+                return;
+            }
+            
+            // Проверка совместимости атаки и цели
+            if ((attackId === 'SQLI' && targetNode.name !== 'Database Server (DB)') ||
+                (attackId === 'BRUTE_FORCE' && targetNode.name !== 'Web Server (WWW)') ||
+                (attackId === 'PHISHING' && targetNode.name !== 'Workstation (User)')) {
+                 logMessage(`Атака ${attack.name} неэффективна против узла ${targetNode.name}.`, 'error');
+                 return;
+            }
+
+            currentBudget -= attack.cost;
+            logMessage(`Начало атаки '${attack.name}' на ${targetNode.name}... (Стоимость: ${attack.cost} $)`, 'attack');
+            updateStats();
+            
+            // Анимация атаки
+            animateAttack(sourceNode.position, targetNode.position);
+            
+            // Расчет шансов на успех (Симуляция)
+            setTimeout(() => {
+                const targetDefenseLevel = targetNode.defense[attack.defenseNeeded];
+                // Шанс успеха (простое обратное соотношение): 
+                // 1.0 (100% без защиты) - (0.2 * уровень защиты)
+                let successChance = 1.0 - (0.2 * targetDefenseLevel) - (0.01 * targetNode.security);
+                successChance = Math.max(0.1, successChance); // Минимум 10%
+                
+                const success = Math.random() < successChance;
+
+                if (success) {
+                    logMessage(`[УСПЕХ] Атака '${attack.name}' сработала! Защита ${attack.defenseNeeded} пройдена.`, 'attack');
+                    // При успешной атаке, снижаем безопасность узла
+                    targetNode.security = Math.max(1, targetNode.security - 5); 
+                    logMessage(`Безопасность ${targetNode.name} снижена до ${targetNode.security}.`, 'attack');
+                } else {
+                    logMessage(`[ПРОИГРЫШ] Атака '${attack.name}' заблокирована защитой ${attack.defenseNeeded}.`, 'defense');
+                }
+                updateStats();
+            }, 1000); // Задержка для анимации
+        }
+        
+        /**
+         * Создает визуальную анимацию атаки
+         */
+        function animateAttack(startPos, endPos) {
+            const mapRect = document.getElementById('networkMap').getBoundingClientRect();
+            const container = document.getElementById('attackAnimations');
+            
+            // Преобразование % в пиксели
+            const startX = mapRect.width * (startPos.x / 100);
+            const startY = mapRect.height * (startPos.y / 100);
+            const endX = mapRect.width * (endPos.x / 100);
+            const endY = mapRect.height * (endPos.y / 100);
+
+            const dx = endX - startX;
+            const dy = endY - startY;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            const angle = Math.atan2(dy, dx) * (180 / Math.PI);
+
+            const line = document.createElement('div');
+            line.className = 'attack-line';
+            line.style.width = `${distance}px`;
+            line.style.left = `${startX}px`;
+            line.style.top = `${startY}px`;
+            line.style.transformOrigin = '0 0';
+            line.style.transform = `rotate(${angle}deg)`;
+            
+            container.appendChild(line);
+
+            // Удаление линии после анимации
+            setTimeout(() => {
+                line.style.opacity = '0';
+                setTimeout(() => line.remove(), 100);
+            }, 900);
+        }
+
+
+        // --- Initialization ---
+        window.onload = initializeGame;
+
+    </script>
+</body>
+</html>
